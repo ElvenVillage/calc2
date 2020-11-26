@@ -98,6 +98,11 @@ class FlatTree {
 '3a+5b' ==> ['3', '⊗', 'a', '+', '5', '⊗', 'b']
 */
 function splitByTokens(stringToParse: string): Array<string> {
+
+    if ((!isBrace(stringToParse[0])) || (!isBrace(stringToParse[stringToParse.length - 1]))) {
+        stringToParse = '(' + stringToParse + ')';
+    }
+
     const tokens = [];
 
     let prev = '⊗';
@@ -245,6 +250,9 @@ function flatTree(tree: TensorNode, level = 0): FlatTree {
 }
 
 function flatTreeToString(tree: FlatTree): string {
+
+    if (tree === null) return '';
+
     if (tree.children.length === 0) {
         return tree.rootSymbol;
     }
@@ -410,7 +418,73 @@ function distrib(tree: FlatTree): FlatTree {
             }
         }
     }
+
     //Левая дистрибутивность 5a + 5b = 5 (a+b)
+
+
+    for (let i = 0; i < tree.children.length - 1; i++) {
+        const rightChildren: Array<FlatTree> = [];
+        const leftChildA = tree.children[i].children[0];
+        const excludedIndexes: Array<number> = [];
+
+        let rightChildA: FlatTree = null;
+        if (tree.children[i].children.length === 2) {
+            rightChildA = tree.children[i].children[tree.children[i].children.length-1];
+        } else {
+            rightChildA = new FlatTree(
+                tree.children[i].rootSymbol,
+                tree.children[i].children.slice(tree.children[i].children.length - 1),
+                tree.children[i].op
+            );
+        }
+        excludedIndexes.push(i)
+        rightChildren.push(rightChildA);
+        for (let j = i + 1; j < tree.children.length; j++) {
+            const leftChildB = tree.children[j].children[0];
+            if (equalFlatTree(leftChildA, leftChildB)) {
+                const rightChildB = new FlatTree(
+                    tree.children[j].rootSymbol,
+                    tree.children[j].children.slice(tree.children[j].children.length - 1),
+                    tree.children[j].op
+                );
+                rightChildren.push(rightChildB);
+                excludedIndexes.push(j);
+            }
+        }
+        if (rightChildren.length > 1) {
+            if (rightChildren.length === tree.children.length) {
+                return new FlatTree(
+                    tree.children[i].rootSymbol,
+                    [
+                        leftChildA,
+                        new FlatTree('+', rightChildren, tree.op + 1),
+                    ],
+                    tree.op
+                );
+            } else {
+                return new FlatTree(
+                    '+',
+                    [
+                        new FlatTree(
+                            tree.children[i].rootSymbol,
+                            [
+                                leftChildA,
+                                new FlatTree(
+                                    '+',
+                                    rightChildren,
+                                    tree.op + 2
+                                )
+                            ],
+                            tree.op + 1
+                        ),
+                        ...tree.children.filter((_v, idx) => !excludedIndexes.includes(idx))
+                    ],
+                    tree.op
+                );
+            }
+        }
+    }
+
     return tree;
 }
 
@@ -446,7 +520,6 @@ function sumOperatorForScalars(tree: FlatTree): FlatTree {
     return tree;
 }
 
-
 /*
 Последовательно применяем переданную функцию ко всем узлам дерева, 
 начиная с самых нижних
@@ -459,45 +532,44 @@ function checkForAll(tree: FlatTree, fun: (a: FlatTree) => FlatTree): FlatTree {
         tree.op));
 }
 
-function testDist(stringToParse: string) {
-    const a = splitByTokens(stringToParse);
-    const b = parseTree(a);
-    let c = flatTree(b);
-    c = checkForAll(c, distrib);
-    //c = checkForAll(c, extractScalar);
-    c = checkForAll(c, sumOperatorForScalars);
-    //c = extractScalar(c);
-    c = checkForAll(c, distrib);
-    c = checkForAll(c, sumOperatorForScalars);
-    console.log(flatTreeToString(c));
+
+function evalExpression(inputString: string): string {
+    const history = [inputString];
+
+    for (let i = 0; i < 200; i++) {
+        let a = splitByTokens(history[history.length - 1]);
+        let b = parseTree(a);
+        let c = flatTree(b);
+
+        c = checkForAll(c, distrib);
+        c = checkForAll(c, extractScalar);
+        c = checkForAll(c, sumOperatorForScalars);
+        const outString = flatTreeToString(c);
+
+        if (history.includes(outString)) {
+            console.log(inputString + '=' + outString);
+            return outString;
+        }
+
+        history.push(outString);
+    }
 }
 
-function test(stringToParse: string) {
-    const a = splitByTokens(stringToParse);
-    let c = parseTree(a);
-    let b = flatTree(c);
-    b = checkForAll(b, extractScalar);
-    b = checkForAll(b, sumOperatorForScalars);
-    b = extractScalar(b);
-    b = checkForAll(b, expand);
-    console.log(flatTreeToString(b));
-}
+evalExpression('2+2');
+evalExpression('3⊗2⊗3');
+evalExpression('4+4⊗2');
+evalExpression('2+2⊗2+2');
+evalExpression('(a+b)·(c+d+e)');
+evalExpression('(2+4)⊗(a+b)');
+evalExpression('2⊗(3⊗(4a·b))');
+evalExpression('3⊗b⊗2');
 
+evalExpression('10ab+4ab+5cd+10cd');
+evalExpression('3a+3b+3a+4b+1a');
+evalExpression('c·b+d+a·b');
 
-// test('(2+2)');
-// test('(3⊗2⊗3)');
-// test('(4+4⊗2)');
-// test('(2+2⊗2+2)');
-// test('((a+b)·(c+d+e))');
-// test('((2+4)⊗(a+b))')
-// test('(2⊗(3⊗(4a·b)))');
-// test('(3⊗b⊗2)');
-
-testDist('(10ab+4ab+5cd+10cd)');
-testDist('(3a+3b+3a+4b+1a');
-
-// test('(1+3)+3)⊗a+(4+3)⊗b');
-// testDist('3a+3b+3b');
-// test('(a+b)⊗(c+d)⊗(e+f)')
-// testDist('(5b+6a+6a)');
-// testDist('(6a+5b+7a+8b)');
+evalExpression('(1+3)+3)⊗a+(4+3)⊗b');
+evalExpression('3a+3b+3b');
+evalExpression('(a+b)⊗(c+d)⊗(e+f)');
+evalExpression('5b+6a+6a');
+evalExpression('6a+5b+7a+8b');
